@@ -1,0 +1,23 @@
+{
+    "extends": "@tsconfig/node18/tsconfig.json",
+    "compilerOptions": {
+        "module": "esnext",
+        "moduleResolution": "node",
+        "outDir": "dist",
+        "rootDir": "src",
+        "target": "es2017",
+        "esModuleInterop": true
+    },
+    "ts-node": {
+        "esm": true
+    },
+    "include": [
+        "src"
+    ],
+    "exclude": [
+        "node_modules"
+    ],
+    "rules": {
+        "@typescript-eslint/no-unused-vars": "off"
+    }
+}
