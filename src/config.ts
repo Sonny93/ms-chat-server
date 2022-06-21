@@ -2,7 +2,7 @@ import { RtpCodecCapability, WebRtcTransportOptions, WorkerSettings } from 'medi
 
 export const HOST_IP = '0.0.0.0';
 export const HOST_ANNOUNCED_IP = '10.22.11.91';
-// export const HOST_ANNOUNCED_IP = '10.168.43.252';
+// export const HOST_ANNOUNCED_IP = '192.168.43.252';
 export const HOST_PORT = 4000;
 
 export const WORKER_OPTIONS = {
