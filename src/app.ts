@@ -44,76 +44,40 @@ const io = new Server(httpServer, {
 const socketLog = new signale.Signale({ scope: 'Socket' });
 httpServer.listen(HOST_PORT, HOST_IP, () => socketLog.log(`Server started as ${HOST_IP}:${HOST_PORT}`));
 
-io.on('connection', (socket: Socket) => {
+import JoinRoomEvent from './events/join-room.js';
+import LeaveRoomEvent from './events/leave-room.js';
+import MessageEvent from './events/message.js';
+import { leaveRoom } from './utils/room.js';
+import { DefaultEventsMap } from 'socket.io/dist/typed-events.js';
+
+io.on('connection', (socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, { user: User; }>) => {
 	const username = socket.handshake.query?.['username'] as string;
 	const avatar = socket.handshake.query?.['avatar'] as string;
 
-	if (!username) {
-		socketLog.warn(socket.id, 'Try to connect without username');
-		socket.emit('error', { error: 'Missing username' });
-		socket.conn.close();
-		return null;
-	} else if (!avatar) {
-		socketLog.warn(socket.id, 'Try to connect without avatar');
-		socket.emit('error', { error: 'Missing avatar' });
+	if (!username || !avatar) {
+		socketLog.warn(socket.id, 'Missing username or avatar', username, avatar);
+		socket.emit('error', { error: 'Missing username or avatar' });
 		socket.conn.close();
 		return null;
 	}
 
-	const user = new User({ username, avatar, socket });
-	USERS.set(user.id, user);
+	socket.data.user = new User({ username, avatar, socket });
+	USERS.set(socket.data.user.id, socket.data.user);
 
-	socketLog.log(`Connected as ${username} [socket:${socket.id}; user:${user.id}]`);
+	socketLog.log(`Connected as ${username} [socket: ${socket.id}; user: ${socket.data.user.id}]`);
 
-	const rooms = mapToArray(ROOMS).map((room) => room.getRoomData());
-	socket.emit('rooms', rooms);
-	socket.emit('routerRtpCapabilities', router.rtpCapabilities);
+	socket.emit('rooms', mapToArray(ROOMS).map((room) => room.getRoomData()));
 
-	socket.on('join-room', async (roomId: string, callback = function () { }) => {
-		if (socket.rooms.has(roomId)) {
-			return callback({ error: 'Already in this room' });
-		}
+	socket.on('join-room', JoinRoomEvent(socket, ROOMS, socketLog));
+	socket.on('leave-room', LeaveRoomEvent(socket, ROOMS, socketLog));
 
-		const room = ROOMS.get(roomId);
-		if (!room) {
-			return callback({ error: 'Room does not exist' });
-		}
+	socket.on('message', MessageEvent(socket, ROOMS, socketLog));
 
-		socketLog.log(socket.id, `joining room ${roomId}`);
-		await room.setUser(user);
-		user.setRoom(room);
-
-		socket.join(roomId);
-		socket.to(roomId).emit('user-join', user.getUserData());
-
-		callback({ room: room.getRoomData() });
-	});
-
-	socket.on('message', (content: string, callback = function () { }) => {
-		if (!content.trim()) {
-			return callback({ error: 'Message content missing' });
-		}
-
-		if (!user.room) {
-			return callback({ error: 'User not in room' });
-		}
-
-		const room = ROOMS.get(user.room.id);
-		if (!room) {
-			return callback({ error: 'Unable to find room' });
-		}
-
-		const message = new Message({ author: user, content: content.trim() });
-		room.addMessage(message);
-
-		socketLog.log('[New message]', socket.id, '>', message.content);
-
-		socket.to(user.room.id).emit('message-new', message.getMessageData());
-
-		return callback({ message: message.getMessageData() });
-	});
+	socket.on('routerRtpCapabilities', (callback: Function) => callback(router.rtpCapabilities));
 
 	socket.on('transport-create', async ({ direction }: { direction: 'recv' | 'send'; }, callback) => {
+		console.log(direction);
+		const user = socket.data.user as User;
 		const transport = await router.createWebRtcTransport({
 			...TRANSPORT_OPTIONS,
 			appData: { userId: user.id }
@@ -124,11 +88,11 @@ io.on('connection', (socket: Socket) => {
 			console.log('[Transport]', 'dtlsstatechange', connectionState)
 			if (connectionState === 'closed') {
 				console.log('[Transport]', 'closed');
-				clearInterval(inter);
+				// clearInterval(inter);
 			}
 		});
 
-		const inter = setInterval(() => printStatsTransport(transport, direction), 2000);
+		// const inter = setInterval(() => printStatsTransport(transport, direction), 2000);
 
 		if (direction === 'send') {
 			user.setSendTransport(transport);
@@ -145,6 +109,7 @@ io.on('connection', (socket: Socket) => {
 	});
 
 	socket.on('transport-connect', async ({ direction, dtlsParameters }: { direction: 'recv' | 'send'; dtlsParameters: DtlsParameters; }, callback) => {
+		const user = socket.data.user as User;
 		if (!dtlsParameters) {
 			return callback({ error: 'Missing DTLS parameters' });
 		}
@@ -164,6 +129,7 @@ io.on('connection', (socket: Socket) => {
 	});
 
 	socket.on('produceMedia', async ({ rtpParameters, clientRtpCapabilities, kind }: { rtpParameters: RtpParameters; clientRtpCapabilities: RtpCapabilities; kind: MediaKind; }, callback) => {
+		const user = socket.data.user as User;
 		if (!rtpParameters) {
 			return callback({ error: 'Missing RTP parameters' });
 		} else if (!clientRtpCapabilities) {
@@ -185,10 +151,11 @@ io.on('connection', (socket: Socket) => {
 		producer.on('trace', (trace) => console.log('trace', trace));
 		producer.enableTraceEvent(['keyframe']);
 
-		return callback({ id: producer.id });
+		return callback({ produceId: producer.id });
 	});
 
-	socket.on('produceMedia', async ({ clientRtpCapabilities, producerId }: { clientRtpCapabilities: RtpCapabilities; producerId: string; }, callback) => {
+	socket.on('consumeMedia', async ({ clientRtpCapabilities, producerId }: { clientRtpCapabilities: RtpCapabilities; producerId: string; }, callback) => {
+		const user = socket.data.user as User;
 		if (!clientRtpCapabilities) {
 			return callback({ error: 'Missing client RTP capabilities' });
 		} else if (!producerId) {
@@ -212,35 +179,38 @@ io.on('connection', (socket: Socket) => {
 		const consumer = await transport.consume({ producerId, rtpCapabilities: clientRtpCapabilities });
 		socketLog.log(socket.id, 'consume success');
 
-		consumer.on('trace', (trace) => console.log('trace', trace));
+		consumer.on('trace', (trace: any) => console.log('trace', trace));
 		consumer.enableTraceEvent(['keyframe']);
 
 		return callback({ consumerId: consumer.id });
 	});
 
-	socket.on('leave-room', async (roomId: string) => {
-		const room = ROOMS.get(roomId);
-		if (!room) {
-			return socketLog.log(`Unable to find room ${roomId}`);
-		}
-
-		socketLog.log(`${username} leaving room ${roomId}`);
-		socket.to(roomId).emit('user-leave', user.getUserData());
-
-		await room.removeUser(user)
-			.catch(console.warn);
-	});
+	socket.on('leave-room', () => clearSocketEvents(socket));
 
 	socket.on('disconnecting', () => {
-		socketLog.log(`Disconnecting as ${username} [socket:${socket.id}; user:${user.id}]`);
+		const user = socket.data.user as User;
+		socketLog.log(`Disconnecting as ${user.username} [socket:${socket.id}; user:${user.id}]`);
+
+		clearSocketEvents(socket);
+
 		// send to all room disconnecting
 		socket.rooms.forEach((roomId) => {
-			socket.to(roomId).emit('user-leave', user.getUserData());
-			ROOMS.forEach((room) => room.removeUser(user).catch(console.warn));
+			leaveRoom({ roomId, user, socket, ROOMS })
+				.then(() => {
+					socketLog.log(`${user.username} leaving room ${roomId}`);
+					socket.to(roomId).emit('user-leave', user.getUserData());
+				})
+				.catch(console.warn);
 		});
 		USERS.delete(user.id);
 	});
 });
+
+function clearSocketEvents(socket: Socket) {
+	socket.off('join-room', JoinRoomEvent(socket, ROOMS, socketLog));
+	socket.off('leave-room', LeaveRoomEvent(socket, ROOMS, socketLog));
+	socket.off('message', MessageEvent(socket, ROOMS, socketLog));
+}
 
 observer.on('newworker', (worker: Worker) => {
 	const { log: workerLog } = new signale.Signale({ scope: 'worker-' + worker.pid });
