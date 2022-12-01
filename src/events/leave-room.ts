@@ -1,10 +1,15 @@
-import { Socket } from 'socket.io';
-import signale from 'signale';
+import { DefaultMethods, Signale } from "signale";
+import { Socket } from "socket.io";
 
-import Room from '../lib/Room.js';
-import { leaveRoom } from '../utils/room.js';
+import Room from "../lib/Room.js";
+import { leaveRoom } from "../utils/room.js";
+import { SERVER_EVENTS } from "./events.js";
 
-export default function (socket: Socket, ROOMS: Map<string, Room>, socketLog: signale.Signale<signale.DefaultMethods>) {
+export default function (
+    socket: Socket,
+    ROOMS: Map<string, Room>,
+    socketLog: Signale<DefaultMethods>
+) {
     return async (roomId: string) => {
         const room = ROOMS.get(roomId);
         if (!room) {
@@ -15,8 +20,10 @@ export default function (socket: Socket, ROOMS: Map<string, Room>, socketLog: si
         leaveRoom({ roomId, user, socket, ROOMS })
             .then(() => {
                 socketLog.log(`${user.username} leaving room ${roomId}`);
-                socket.to(roomId).emit('user-leave', user.getUserData());
+                socket
+                    .to(roomId)
+                    .emit(SERVER_EVENTS.USER_LEAVE, user.getUserData());
             })
             .catch(console.warn);
-    }
+    };
 }

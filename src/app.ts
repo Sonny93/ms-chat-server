@@ -1,33 +1,42 @@
-import { createWorker, observer } from 'mediasoup';
+import { createWorker, observer } from "mediasoup";
 import {
-	DtlsParameters,
-	MediaKind, Router, RtpCapabilities,
-	RtpParameters, Worker
-} from 'mediasoup/node/lib/types';
+    DtlsParameters,
+    MediaKind,
+    Router,
+    RtpCapabilities,
+    RtpParameters,
+    Worker,
+} from "mediasoup/node/lib/types";
 
-import signale from 'signale';
+import signale from "signale";
 
-import { createServer } from 'http';
-import { Server, Socket } from 'socket.io';
+import { createServer } from "http";
+import { Server, Socket } from "socket.io";
+import { DefaultEventsMap } from "socket.io/dist/typed-events";
 
 // Classes
-import User from './lib/User.js';
-import Room from './lib/Room.js';
+import Room from "./lib/Room.js";
+import User from "./lib/User.js";
 
 // Utils
-import { mapToArray } from './utils/index.js';
-import { printStatsTransport, transportDataClient } from './utils/transport.js';
+import { mapToArray } from "./utils/index.js";
+import { transportDataClient } from "./utils/transport.js";
 
 // Config
-import { HOST_IP, HOST_PORT, MEDIA_CODECS, TRANSPORT_OPTIONS, WORKER_OPTIONS } from './config.js';
-import Message from './lib/Message.js';
+import {
+    HOST_IP,
+    HOST_PORT,
+    MEDIA_CODECS,
+    TRANSPORT_OPTIONS,
+    WORKER_OPTIONS,
+} from "./config.js";
 
 const USERS = new Map<string, User>();
 
 const ROOMS = new Map<string, Room>();
 [...new Array(5)].map(() => {
-	const defaultRoom = new Room();
-	ROOMS.set(defaultRoom.id, defaultRoom);
+    const defaultRoom = new Room();
+    ROOMS.set(defaultRoom.id, defaultRoom);
 });
 
 const worker = await createWorker(WORKER_OPTIONS);
@@ -35,189 +44,308 @@ const router = await worker.createRouter({ mediaCodecs: MEDIA_CODECS });
 
 const httpServer = createServer();
 const io = new Server(httpServer, {
-	cors: {
-		origin: '*',
-		methods: '*'
-	}
+    cors: {
+        origin: "*",
+        methods: "*",
+    },
 });
 
-const socketLog = new signale.Signale({ scope: 'Socket' });
-httpServer.listen(HOST_PORT, HOST_IP, () => socketLog.log(`Server started as ${HOST_IP}:${HOST_PORT}`));
+const socketLog = new signale.Signale({ scope: "Socket" });
+const transportLog = new signale.Signale({ scope: "Transport" });
+httpServer.listen(HOST_PORT, HOST_IP, () =>
+    socketLog.log(`Server started as ${HOST_IP}:${HOST_PORT}`)
+);
 
-import JoinRoomEvent from './events/join-room.js';
-import LeaveRoomEvent from './events/leave-room.js';
-import MessageEvent from './events/message.js';
-import { leaveRoom } from './utils/room.js';
-import { DefaultEventsMap } from 'socket.io/dist/typed-events.js';
+import { SERVER_EVENTS } from "./events/events.js";
 
-io.on('connection', (socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, { user: User; }>) => {
-	const username = socket.handshake.query?.['username'] as string;
-	const avatar = socket.handshake.query?.['avatar'] as string;
+import JoinRoomEvent from "./events/join-room.js";
+import LeaveRoomEvent from "./events/leave-room.js";
+import MessageEvent from "./events/message.js";
+import RouterRtpCapabilitiesEvent from "./events/router-rtp-capabilities.js";
 
-	if (!username || !avatar) {
-		socketLog.warn(socket.id, 'Missing username or avatar', username, avatar);
-		socket.emit('error', { error: 'Missing username or avatar' });
-		socket.conn.close();
-		return null;
-	}
+import { leaveRoom } from "./utils/room.js";
 
-	socket.data.user = new User({ username, avatar, socket });
-	USERS.set(socket.data.user.id, socket.data.user);
+type SocketProps = Socket<
+    DefaultEventsMap,
+    DefaultEventsMap,
+    DefaultEventsMap,
+    { user: User }
+>;
 
-	socketLog.log(`Connected as ${username} [socket: ${socket.id}; user: ${socket.data.user.id}]`);
+io.on(SERVER_EVENTS.SOCKET_CONNECTION, async (socket: SocketProps) => {
+    try {
+        const [username, avatar] = await getUsernameAndAvatarFromSocket(socket);
+        socket.data.user = new User({ username, avatar, socket });
+    } catch (error) {
+        console.error("error", error);
 
-	socket.emit('rooms', mapToArray(ROOMS).map((room) => room.getRoomData()));
+        socket.emit(SERVER_EVENTS.SOCKET_ERROR, {
+            error: "Missing username or avatar",
+        });
+        return socket.conn.close();
+    }
 
-	socket.on('join-room', JoinRoomEvent(socket, ROOMS, socketLog));
-	socket.on('leave-room', LeaveRoomEvent(socket, ROOMS, socketLog));
+    const user = socket.data.user;
+    USERS.set(user.id, user);
 
-	socket.on('message', MessageEvent(socket, ROOMS, socketLog));
+    socketLog.log(
+        `Connected as ${user.username} [socket: ${socket.id}; user: ${user.id}]`
+    );
 
-	socket.on('routerRtpCapabilities', (callback: Function) => callback(router.rtpCapabilities));
+    socket.emit(
+        SERVER_EVENTS.ROOM_LIST,
+        mapToArray(ROOMS).map((room) => room.getRoomData())
+    );
+    socket.on(SERVER_EVENTS.ROOM_JOIN, JoinRoomEvent(socket, ROOMS, socketLog));
+    socket.on(
+        SERVER_EVENTS.ROOM_LEAVE,
+        LeaveRoomEvent(socket, ROOMS, socketLog)
+    );
 
-	socket.on('transport-create', async ({ direction }: { direction: 'recv' | 'send'; }, callback) => {
-		console.log(direction);
-		const user = socket.data.user as User;
-		const transport = await router.createWebRtcTransport({
-			...TRANSPORT_OPTIONS,
-			appData: { userId: user.id }
-		});
+    socket.on(
+        SERVER_EVENTS.MESSAGE_SEND,
+        MessageEvent(socket, ROOMS, socketLog)
+    );
 
-		transport.on('icestatechange', (connectionState) => console.log('[Transport]', 'icestatechange', connectionState));
-		transport.on('dtlsstatechange', (connectionState) => {
-			console.log('[Transport]', 'dtlsstatechange', connectionState)
-			if (connectionState === 'closed') {
-				console.log('[Transport]', 'closed');
-				// clearInterval(inter);
-			}
-		});
+    socket.on(
+        SERVER_EVENTS.ROUTER_RTP_CAPABILITIES,
+        RouterRtpCapabilitiesEvent(router.rtpCapabilities)
+    );
 
-		// const inter = setInterval(() => printStatsTransport(transport, direction), 2000);
+    type TransportCreateProps = {
+        direction: "recv" | "send";
+    };
+    socket.on(
+        SERVER_EVENTS.TRANSPORT_CREATE,
+        async ({ direction }: TransportCreateProps, callback) => {
+            const transport = await router.createWebRtcTransport({
+                ...TRANSPORT_OPTIONS,
+                appData: { userId: user.id },
+            });
 
-		if (direction === 'send') {
-			user.setSendTransport(transport);
-		} else if (direction === 'recv') {
-			user.setRecvTransport(transport);
-		} else {
-			return callback({ error: 'Bad direction' });
-		}
+            transport.on("icestatechange", (connectionState) =>
+                transportLog.log("icestatechange", connectionState)
+            );
+            transport.on("dtlsstatechange", (connectionState) => {
+                transportLog.log("dtlsstatechange", connectionState);
+                if (connectionState === "closed") {
+                    transportLog.log("closed");
+                }
+            });
 
-		const transportData = await transportDataClient(transport);
-		socketLog.log(socket.id, `${direction} transport created`);
+            if (direction === "send") {
+                user.setSendTransport(transport);
+            } else if (direction === "recv") {
+                user.setRecvTransport(transport);
+            } else {
+                return callback({ error: "Bad direction" });
+            }
 
-		return callback({ transport: transportData });
-	});
+            const transportData = await transportDataClient(transport);
+            transportLog.log(socket.id, `${direction} transport created`);
 
-	socket.on('transport-connect', async ({ direction, dtlsParameters }: { direction: 'recv' | 'send'; dtlsParameters: DtlsParameters; }, callback) => {
-		const user = socket.data.user as User;
-		if (!dtlsParameters) {
-			return callback({ error: 'Missing DTLS parameters' });
-		}
+            return callback({ transport: transportData });
+        }
+    );
 
-		const transport = direction === 'send'
-			? user.getSendTransport()
-			: user.getRecvTransport();
+    type TransportConnectProps = {
+        direction: "recv" | "send";
+        dtlsParameters: DtlsParameters;
+    };
+    socket.on(
+        SERVER_EVENTS.TRANSPORT_CONNECT,
+        async (
+            { direction, dtlsParameters }: TransportConnectProps,
+            callback
+        ) => {
+            if (!dtlsParameters) {
+                return callback({ error: "Missing DTLS parameters" });
+            }
 
-		if (!transport) {
-			return callback({ error: 'Unable to connect to transport' });
-		}
+            const transport =
+                direction === "send"
+                    ? user.getSendTransport()
+                    : user.getRecvTransport();
 
-		await transport.connect({ dtlsParameters });
-		socketLog.log(socket.id, `connected to ${direction} transport`);
+            if (!transport) {
+                return callback({
+                    error: "Unable to connect to transport",
+                });
+            }
 
-		return callback({});
-	});
+            await transport.connect({ dtlsParameters });
+            transportLog.log(socket.id, `connected to ${direction} transport`);
 
-	socket.on('produceMedia', async ({ rtpParameters, clientRtpCapabilities, kind }: { rtpParameters: RtpParameters; clientRtpCapabilities: RtpCapabilities; kind: MediaKind; }, callback) => {
-		const user = socket.data.user as User;
-		if (!rtpParameters) {
-			return callback({ error: 'Missing RTP parameters' });
-		} else if (!clientRtpCapabilities) {
-			return callback({ error: 'Missing client RTP capabilities' });
-		} else if (!kind) {
-			return callback({ error: 'Missing media Kind' });
-		}
+            return callback({});
+        }
+    );
 
-		user.setClientRtpCapabilities(clientRtpCapabilities);
+    type ProduceMediaProps = {
+        rtpParameters: RtpParameters;
+        clientRtpCapabilities: RtpCapabilities;
+        kind: MediaKind;
+    };
+    socket.on(
+        SERVER_EVENTS.PRODUCE_MEDIA,
+        async (
+            { rtpParameters, clientRtpCapabilities, kind }: ProduceMediaProps,
+            callback
+        ) => {
+            if (!rtpParameters) {
+                return callback({ error: "Missing RTP parameters" });
+            } else if (!clientRtpCapabilities) {
+                return callback({
+                    error: "Missing client RTP capabilities",
+                });
+            } else if (!kind) {
+                return callback({ error: "Missing media Kind" });
+            }
 
-		const transport = user.getSendTransport();
-		if (!transport) {
-			return callback({ error: 'Unable to find transport' });
-		}
+            user.setClientRtpCapabilities(clientRtpCapabilities);
 
-		const producer = await transport.produce({ kind, rtpParameters });
-		socketLog.log(socket.id, 'produce success');
+            const transport = user.getSendTransport();
+            if (!transport) {
+                return callback({ error: "Unable to find transport" });
+            }
 
-		producer.on('trace', (trace) => console.log('trace', trace));
-		producer.enableTraceEvent(['keyframe']);
+            const producer = await transport.produce({
+                kind,
+                rtpParameters,
+            });
+            socketLog.log(socket.id, "produce success");
 
-		return callback({ produceId: producer.id });
-	});
+            producer.on("trace", (trace) => console.log("trace", trace));
+            producer.enableTraceEvent(["keyframe"]);
 
-	socket.on('consumeMedia', async ({ clientRtpCapabilities, producerId }: { clientRtpCapabilities: RtpCapabilities; producerId: string; }, callback) => {
-		console.log('ici', producerId)
-		const user = socket.data.user as User;
-		if (!clientRtpCapabilities) {
-			return callback({ error: 'Missing client RTP capabilities' });
-		} else if (!producerId) {
-			console.log('ya pas le producerId')
-			return callback({ error: 'Missing client producer id' });
-		}
+            socket.to(user.room!.id).emit("call-produce", {
+                userId: user.id,
+                producerId: producer.id,
+            });
 
-		if (!router.canConsume({ producerId, rtpCapabilities: clientRtpCapabilities })) {
-			socketLog.error(socket.id, 'cant consume', producerId);
-			return callback({ error: 'Cant consume this producerId ' + producerId });
-		} else {
-			socketLog.log(socket.id, 'can consume');
-		}
+            return callback({ produceId: producer.id });
+        }
+    );
 
-		user.setClientRtpCapabilities(clientRtpCapabilities);
+    type ConsumeMediaProps = {
+        clientRtpCapabilities: RtpCapabilities;
+        producerId: string;
+    };
+    socket.on(
+        SERVER_EVENTS.CONSUME_MEDIA,
+        async (
+            { clientRtpCapabilities, producerId }: ConsumeMediaProps,
+            callback
+        ) => {
+            const user = socket.data.user as User;
+            if (!clientRtpCapabilities) {
+                return callback({
+                    error: "Missing client RTP capabilities",
+                });
+            } else if (!producerId) {
+                console.log("ya pas le producerId");
+                return callback({ error: "Missing client producer id" });
+            }
 
-		const transport = user.getRecvTransport();
-		if (!transport) {
-			return callback({ error: 'Unable to find transport' });
-		}
+            if (
+                !router.canConsume({
+                    producerId,
+                    rtpCapabilities: clientRtpCapabilities,
+                })
+            ) {
+                transportLog.error(
+                    socket.id,
+                    "cant consume this producerId",
+                    producerId
+                );
+                return callback({
+                    error: "Cant consume this producerId " + producerId,
+                });
+            }
 
-		const consumer = await transport.consume({ producerId, rtpCapabilities: clientRtpCapabilities });
-		socketLog.log(socket.id, 'consume success');
+            user.setClientRtpCapabilities(clientRtpCapabilities);
 
-		consumer.on('trace', (trace: any) => console.log('trace', trace));
-		consumer.enableTraceEvent(['keyframe']);
+            const transport = user.getRecvTransport();
+            if (!transport) {
+                return callback({ error: "Unable to find transport" });
+            }
 
-		return callback({ consumerId: consumer.id, rtpParameters: consumer.rtpParameters });
-	});
+            const consumer = await transport.consume({
+                producerId,
+                rtpCapabilities: clientRtpCapabilities,
+            });
+            transportLog.log(socket.id, "consume success");
 
-	socket.on('leave-room', () => clearSocketEvents(socket));
+            return callback({
+                consumerId: consumer.id,
+                rtpParameters: consumer.rtpParameters,
+            });
+        }
+    );
 
-	socket.on('disconnecting', () => {
-		const user = socket.data.user as User;
-		socketLog.log(`Disconnecting as ${user.username} [socket:${socket.id}; user:${user.id}]`);
+    socket.on(SERVER_EVENTS.ROOM_LEAVE, () => clearSocketEvents(socket));
 
-		clearSocketEvents(socket);
+    socket.on(SERVER_EVENTS.SOCKET_DISCONNECTING, () => {
+        const user = socket.data.user as User;
+        socketLog.log(
+            `Disconnecting as ${user.username} [socket:${socket.id}; user:${user.id}]`
+        );
 
-		// send to all room disconnecting
-		socket.rooms.forEach((roomId) => {
-			leaveRoom({ roomId, user, socket, ROOMS })
-				.then(() => {
-					socketLog.log(`${user.username} leaving room ${roomId}`);
-					socket.to(roomId).emit('user-leave', user.getUserData());
-				})
-				.catch(console.warn);
-		});
-		USERS.delete(user.id);
-	});
+        clearSocketEvents(socket);
+
+        // send to all room disconnecting
+        socket.rooms.forEach((roomId) => {
+            leaveRoom({ roomId, user, socket, ROOMS })
+                .then(() => {
+                    socketLog.log(`${user.username} leaving room ${roomId}`);
+                    socket.to(roomId).emit("user-leave", user.getUserData());
+                })
+                .catch(console.warn);
+        });
+        USERS.delete(user.id);
+    });
 });
 
 function clearSocketEvents(socket: Socket) {
-	socket.off('join-room', JoinRoomEvent(socket, ROOMS, socketLog));
-	socket.off('leave-room', LeaveRoomEvent(socket, ROOMS, socketLog));
-	socket.off('message', MessageEvent(socket, ROOMS, socketLog));
+    socket.off(
+        SERVER_EVENTS.ROOM_JOIN,
+        JoinRoomEvent(socket, ROOMS, socketLog)
+    );
+    socket.off(
+        SERVER_EVENTS.ROOM_LEAVE,
+        LeaveRoomEvent(socket, ROOMS, socketLog)
+    );
+    socket.off(
+        SERVER_EVENTS.MESSAGE_SEND,
+        MessageEvent(socket, ROOMS, socketLog)
+    );
 }
 
-observer.on('newworker', (worker: Worker) => {
-	const { log: workerLog } = new signale.Signale({ scope: 'worker-' + worker.pid });
-	workerLog('Worker created');
+async function getUsernameAndAvatarFromSocket(socket: Socket) {
+    const username = socket.handshake.query?.["username"] as string;
+    const avatar = socket.handshake.query?.["avatar"] as string;
 
-	worker.observer.on('close', () => workerLog('Worker closed'));
-	worker.observer.on('newrouter', (router: Router) => workerLog('Router created', router.id));
+    if (!username || !avatar) {
+        socketLog.warn(
+            socket.id,
+            "Missing username or avatar",
+            username,
+            avatar
+        );
+
+        return Promise.reject();
+    }
+
+    return Promise.resolve([username, avatar]);
+}
+
+observer.on("newworker", (worker: Worker) => {
+    const workerLog = new signale.Signale({
+        scope: "worker-" + worker.pid,
+    });
+    workerLog.log("Worker created");
+
+    worker.observer.on("close", () => workerLog.log("Worker closed"));
+    worker.observer.on("newrouter", (router: Router) =>
+        workerLog.log("Router created", router.id)
+    );
 });
