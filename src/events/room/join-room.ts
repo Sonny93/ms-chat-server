@@ -1,8 +1,8 @@
 import { DefaultMethods, Signale } from "signale";
 import { Socket } from "socket.io";
 
-import Room from "../lib/Room";
-import { SERVER_EVENTS } from "./events.d.js";
+import Room from "../../lib/Room";
+import { SERVER_EVENTS } from "../events.js";
 
 export default function (
     socket: Socket,
