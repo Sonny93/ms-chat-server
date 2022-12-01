@@ -155,10 +155,12 @@ io.on('connection', (socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultE
 	});
 
 	socket.on('consumeMedia', async ({ clientRtpCapabilities, producerId }: { clientRtpCapabilities: RtpCapabilities; producerId: string; }, callback) => {
+		console.log('ici', producerId)
 		const user = socket.data.user as User;
 		if (!clientRtpCapabilities) {
 			return callback({ error: 'Missing client RTP capabilities' });
 		} else if (!producerId) {
+			console.log('ya pas le producerId')
 			return callback({ error: 'Missing client producer id' });
 		}
 
@@ -182,7 +184,7 @@ io.on('connection', (socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultE
 		consumer.on('trace', (trace: any) => console.log('trace', trace));
 		consumer.enableTraceEvent(['keyframe']);
 
-		return callback({ consumerId: consumer.id });
+		return callback({ consumerId: consumer.id, rtpParameters: consumer.rtpParameters });
 	});
 
 	socket.on('leave-room', () => clearSocketEvents(socket));

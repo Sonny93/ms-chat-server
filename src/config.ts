@@ -1,8 +1,7 @@
 import { RtpCodecCapability, WebRtcTransportOptions, WorkerSettings } from 'mediasoup/node/lib/types';
 
 export const HOST_IP = '0.0.0.0';
-export const HOST_ANNOUNCED_IP = '10.22.11.91';
-// export const HOST_ANNOUNCED_IP = '192.168.43.252';
+export const HOST_ANNOUNCED_IP = '192.168.56.1';
 export const HOST_PORT = 4000;
 
 export const WORKER_OPTIONS = {
