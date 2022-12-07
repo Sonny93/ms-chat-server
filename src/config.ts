@@ -3,34 +3,32 @@ import {
     WebRtcTransportOptions,
     WorkerSettings,
 } from "mediasoup/node/lib/types";
+import { networkInterfaces } from "node:os";
 
 export const WORKER_OPTIONS = {
     logLevel: "debug",
-    logTags: [
-        "info",
-        "ice",
-        "dtls",
-        "rtp",
-        "srtp",
-        "rtcp",
-        // 'rtx',
-        // 'bwe',
-        // 'score',
-        // 'simulcast',
-        // 'svc'
-    ],
+    logTags: ["info", "ice", "dtls", "rtp", "srtp", "rtcp"],
     rtcMinPort: 40000,
     rtcMaxPort: 49999,
 } as WorkerSettings;
 
-export const HOST_IP = "127.0.0.1";
-// export const HOST_ANNOUNCED_IP = "192.168.200.242";
+const net = networkInterfaces();
+const localAddresses = Object.entries(net)
+    .filter(([key]) => key !== "lo") // remove loopback addr
+    .flatMap(([_, value]) => value);
+
+export const HOST_IP = "0.0.0.0";
+
+// Local IP Address
+// export const HOST_ANNOUNCED_IP = "192.168.1.23";
+export const HOST_ANNOUNCED_IP = localAddresses[0]?.address ?? "127.0.0.1";
+
 export const HOST_PORT = 4000;
 
 const listenIps = [
     {
         ip: HOST_IP,
-        // announcedIp: HOST_ANNOUNCED_IP
+        announcedIp: HOST_ANNOUNCED_IP,
     },
 ];
 export const TRANSPORT_OPTIONS = {
