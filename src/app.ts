@@ -1,11 +1,5 @@
 import { createWorker, observer } from "mediasoup";
-import {
-    MediaKind,
-    Router,
-    RtpCapabilities,
-    RtpParameters,
-    Worker,
-} from "mediasoup/node/lib/types";
+import { Router, Worker } from "mediasoup/node/lib/types";
 
 import signale from "signale";
 
@@ -126,21 +120,12 @@ io.on(SERVER_EVENTS.SOCKET_CONNECTION, async (socket: SocketProps) => {
     );
 
     /* Produce Event */
-    type ProduceMediaProps = {
-        rtpParameters: RtpParameters;
-        clientRtpCapabilities: RtpCapabilities;
-        kind: MediaKind;
-    };
     socket.on(
         SERVER_EVENTS.PRODUCE_MEDIA,
         ProduceMediaEvent(user, socket, socketLog)
     );
 
     /* Consume Media */
-    type ConsumeMediaProps = {
-        clientRtpCapabilities: RtpCapabilities;
-        producerId: string;
-    };
     socket.on(
         SERVER_EVENTS.CONSUME_MEDIA,
         ConsumeMediaEvent(router, user, socket.id, transportLog)
