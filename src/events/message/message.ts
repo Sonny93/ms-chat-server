@@ -32,7 +32,7 @@ export default function (
 
         socket
             .to(user.room.id)
-            .emit(SERVER_EVENTS.MESSAGE_SEND, message.getMessageData());
+            .emit(SERVER_EVENTS.MESSAGE_NEW, message.getMessageData());
 
         return callback({ message: message.getMessageData() });
     };
