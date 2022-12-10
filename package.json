@@ -1,7 +1,6 @@
 {
-  "name": "ms-server",
+  "name": "ms-chat-server",
   "version": "1.0.0",
-  "description": "",
   "main": "src/app.ts",
   "type": "module",
   "scripts": {
@@ -15,6 +14,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "dotenv": "^16.0.3",
     "mediasoup": "^3.11.4",
     "signale": "^1.4.0",
     "socket.io": "^4.5.4"

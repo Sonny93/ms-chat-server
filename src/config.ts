@@ -1,3 +1,6 @@
+import * as dotenv from "dotenv";
+dotenv.config();
+
 import {
     RtpCodecCapability,
     WebRtcTransportOptions,
@@ -7,13 +10,13 @@ import {
 export const WORKER_OPTIONS = {
     logLevel: "debug",
     logTags: ["info", "ice", "dtls", "rtp", "srtp", "rtcp"],
-    rtcMinPort: 40000,
-    rtcMaxPort: 49999,
+    rtcMinPort: process.env.WORKER_RTC_MIN_PORT || 40000,
+    rtcMaxPort: process.env.WORKER_RTC_MAX_PORT || 49999,
 } as WorkerSettings;
 
-export const HOST_IP = "0.0.0.0";
-export const HOST_ANNOUNCED_IP = "192.168.200.65"; // or 127.0.0.1
-export const HOST_PORT = 4000;
+export const HOST_IP = process.env.HOST_IP || "0.0.0.0";
+export const HOST_ANNOUNCED_IP = process.env.HOST_ANNOUNCED_IP || "127.0.0.1";
+export const HOST_PORT = parseInt(process.env.HOST_PORT || "", 10) || 4000;
 
 const listenIps = [
     {
