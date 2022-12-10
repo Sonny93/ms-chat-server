@@ -46,10 +46,12 @@ export default function (
         });
         socketLog.log(socket.id, "produce success");
 
-        socket.to(user.room!.id).emit("call-produce", {
-            userId: user.id,
-            producerId: producer.id,
-        });
+        if (user.room?.id) {
+            socket.to(user.room.id).emit("call-produce", {
+                userId: user.id,
+                producerId: producer.id,
+            });
+        }
 
         return callback({ produceId: producer.id });
     };
