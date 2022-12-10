@@ -15,7 +15,13 @@ import User from "./lib/User.js";
 import { mapToArray } from "./utils/index.js";
 
 // Config
-import { HOST_IP, HOST_PORT, MEDIA_CODECS, WORKER_OPTIONS } from "./config.js";
+import {
+    HOST_ANNOUNCED_IP,
+    HOST_IP,
+    HOST_PORT,
+    MEDIA_CODECS,
+    WORKER_OPTIONS,
+} from "./config.js";
 
 const USERS = new Map<string, User>();
 
@@ -38,9 +44,11 @@ const io = new Server(httpServer, {
 
 const socketLog = new signale.Signale({ scope: "Socket" });
 const transportLog = new signale.Signale({ scope: "Transport" });
-httpServer.listen(HOST_PORT, HOST_IP, () =>
-    socketLog.log(`Server started as ${HOST_IP}:${HOST_PORT}`)
-);
+httpServer.listen(HOST_PORT, HOST_IP, () => {
+    socketLog.log("Server started");
+    socketLog.log(`HOST IP      : ${HOST_IP}:${HOST_PORT}`);
+    socketLog.log(`Announced IP : ${HOST_ANNOUNCED_IP}`);
+});
 
 import { SERVER_EVENTS } from "./events/events.js";
 
@@ -71,7 +79,7 @@ io.on(SERVER_EVENTS.SOCKET_CONNECTION, async (socket: SocketProps) => {
         const [username, avatar] = await getUsernameAndAvatarFromSocket(socket);
         socket.data.user = new User({ username, avatar, socket });
     } catch (error) {
-        console.error("error", error);
+        socketLog.error(socket.id, error);
 
         socket.emit(SERVER_EVENTS.SOCKET_ERROR, {
             error: "Missing username or avatar",
@@ -131,7 +139,7 @@ io.on(SERVER_EVENTS.SOCKET_CONNECTION, async (socket: SocketProps) => {
         ConsumeMediaEvent(router, user, socket.id, transportLog)
     );
 
-    socket.on(SERVER_EVENTS.SOCKET_DISCONNECTING, () => {
+    socket.once(SERVER_EVENTS.SOCKET_DISCONNECTING, () => {
         const user = socket.data.user as User;
         socketLog.log(
             `Disconnecting as ${user.username} [socket:${socket.id}; user:${user.id}]`
@@ -152,7 +160,9 @@ io.on(SERVER_EVENTS.SOCKET_CONNECTION, async (socket: SocketProps) => {
     });
 });
 
-function clearSocketEvents(socket: Socket) {
+function clearSocketEvents(socket: SocketProps) {
+    const user = socket.data.user!;
+
     socket.off(
         SERVER_EVENTS.ROOM_JOIN,
         RoomJoinEvent(socket, ROOMS, socketLog)
@@ -161,9 +171,34 @@ function clearSocketEvents(socket: Socket) {
         SERVER_EVENTS.ROOM_LEAVE,
         RoomLeaveEvent(socket, ROOMS, socketLog)
     );
+
     socket.off(
         SERVER_EVENTS.MESSAGE_SEND,
         MessageSendEvent(socket, ROOMS, socketLog)
+    );
+
+    socket.off(
+        SERVER_EVENTS.ROUTER_RTP_CAPABILITIES,
+        RouterRtpCapabilitiesEvent(router.rtpCapabilities)
+    );
+
+    socket.off(
+        SERVER_EVENTS.TRANSPORT_CREATE,
+        TransportCreateEvent(user, router, socket.id, transportLog)
+    );
+    socket.off(
+        SERVER_EVENTS.TRANSPORT_CONNECT,
+        TransportConnectEvent(user, socket.id, transportLog)
+    );
+
+    socket.off(
+        SERVER_EVENTS.PRODUCE_MEDIA,
+        ProduceMediaEvent(user, socket, socketLog)
+    );
+
+    socket.off(
+        SERVER_EVENTS.CONSUME_MEDIA,
+        ConsumeMediaEvent(router, user, socket.id, transportLog)
     );
 }
 
@@ -171,15 +206,12 @@ async function getUsernameAndAvatarFromSocket(socket: Socket) {
     const username = socket.handshake.query?.["username"] as string;
     const avatar = socket.handshake.query?.["avatar"] as string;
 
-    if (!username || !avatar) {
-        socketLog.warn(
-            socket.id,
-            "Missing username or avatar",
-            username,
-            avatar
-        );
+    if (!username) {
+        return Promise.reject(`Missing username (${username ?? null})`);
+    }
 
-        return Promise.reject();
+    if (!avatar) {
+        return Promise.reject(`Missing avatar (${avatar ?? null})`);
     }
 
     return Promise.resolve([username, avatar]);
