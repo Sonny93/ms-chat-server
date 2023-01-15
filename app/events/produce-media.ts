@@ -1,9 +1,9 @@
+import Logger from "@ioc:Adonis/Core/Logger";
 import {
 	MediaKind,
 	RtpCapabilities,
 	RtpParameters,
 } from "mediasoup/node/lib/RtpParameters";
-import Logger from "@ioc:Adonis/Core/Logger";
 import { Socket } from "socket.io";
 
 import User from "App/lib/User";
@@ -20,12 +20,15 @@ export default function (user: User, socket: Socket) {
 		callback: any
 	) => {
 		if (!rtpParameters) {
+			Logger.error(`${user.username} missing RTP Parameters`);
 			return callback({ error: "Missing RTP parameters" });
 		} else if (!clientRtpCapabilities) {
+			Logger.error(`${user.username} missing client RTP capabilities`);
 			return callback({
 				error: "Missing client RTP capabilities",
 			});
 		} else if (!kind) {
+			Logger.error(`${user.username} missing media kind`);
 			return callback({ error: "Missing media Kind" });
 		}
 
@@ -33,6 +36,7 @@ export default function (user: User, socket: Socket) {
 
 		const transport = user.getSendTransport();
 		if (!transport) {
+			Logger.error(`${user.username} uunable to find transport`);
 			return callback({ error: "Unable to find transport" });
 		}
 
@@ -40,13 +44,19 @@ export default function (user: User, socket: Socket) {
 			kind,
 			rtpParameters,
 		});
-		Logger.info(socket.id, "produce success");
+		Logger.info(`${user.username} produce success`);
 
 		if (user.room?.id) {
+			Logger.debug(`${user.username} produce to ${user.room.id}`);
 			socket.to(user.room.id).emit("call-produce", {
 				userId: user.id,
 				producerId: producer.id,
 			});
+		} else {
+			Logger.debug(
+				`${user.username} unable to find room to produce, close tansport`
+			);
+			transport.close();
 		}
 
 		return callback({ produceId: producer.id });

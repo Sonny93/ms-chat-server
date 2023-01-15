@@ -31,8 +31,8 @@ import TransportCreateEvent from "App/events/transport/transport-create";
 import ConsumeMediaEvent from "App/events/consume-media";
 import ProduceMediaEvent from "App/events/produce-media";
 
-import { leaveRoom } from "App/utils/room";
 import { SERVER_EVENTS } from "App/events/events";
+import { leaveRoom } from "App/utils/room";
 
 type SocketProps = Socket<
 	DefaultEventsMap,
@@ -46,10 +46,12 @@ type SocketProps = Socket<
  */
 Ws.io.on("connection", async (socket) => {
 	try {
-		const [username, avatar] = await getUsernameAndAvatarFromSocket(socket);
+		const [username, avatar] = await getUsernameAndAvatarFromHandshake(
+			socket.handshake
+		);
 		socket.data.user = new User({ username, avatar, socket });
 	} catch (error) {
-		Logger.error(socket.id, error);
+		Logger.error(`${socket.id} ${error}`);
 
 		socket.emit(SERVER_EVENTS.SOCKET_ERROR, {
 			error: "Missing username or avatar",
@@ -87,12 +89,9 @@ Ws.io.on("connection", async (socket) => {
 	/* Transport Events */
 	socket.on(
 		SERVER_EVENTS.TRANSPORT_CREATE,
-		TransportCreateEvent(user, WorkerService.router, socket.id)
+		TransportCreateEvent(user, WorkerService.router)
 	);
-	socket.on(
-		SERVER_EVENTS.TRANSPORT_CONNECT,
-		TransportConnectEvent(user, socket.id)
-	);
+	socket.on(SERVER_EVENTS.TRANSPORT_CONNECT, TransportConnectEvent(user));
 
 	/* Produce Event */
 	socket.on(SERVER_EVENTS.PRODUCE_MEDIA, ProduceMediaEvent(user, socket));
@@ -100,7 +99,7 @@ Ws.io.on("connection", async (socket) => {
 	/* Consume Media */
 	socket.on(
 		SERVER_EVENTS.CONSUME_MEDIA,
-		ConsumeMediaEvent(WorkerService.router, user, socket.id)
+		ConsumeMediaEvent(WorkerService.router, user)
 	);
 
 	socket.once(SERVER_EVENTS.SOCKET_DISCONNECTING, () => {
@@ -111,7 +110,7 @@ Ws.io.on("connection", async (socket) => {
 
 		clearSocketEvents(socket);
 
-		// send to all room disconnecting
+		/* Send disconnecting event to all rooms */
 		socket.rooms.forEach((roomId) => {
 			leaveRoom({ roomId, user, socket, ROOMS })
 				.then(() => {
@@ -139,31 +138,30 @@ function clearSocketEvents(socket: SocketProps) {
 
 	socket.off(
 		SERVER_EVENTS.TRANSPORT_CREATE,
-		TransportCreateEvent(user, WorkerService.router, socket.id)
+		TransportCreateEvent(user, WorkerService.router)
 	);
-	socket.off(
-		SERVER_EVENTS.TRANSPORT_CONNECT,
-		TransportConnectEvent(user, socket.id)
-	);
+	socket.off(SERVER_EVENTS.TRANSPORT_CONNECT, TransportConnectEvent(user));
 
 	socket.off(SERVER_EVENTS.PRODUCE_MEDIA, ProduceMediaEvent(user, socket));
 
 	socket.off(
 		SERVER_EVENTS.CONSUME_MEDIA,
-		ConsumeMediaEvent(WorkerService.router, user, socket.id)
+		ConsumeMediaEvent(WorkerService.router, user)
 	);
 }
 
-async function getUsernameAndAvatarFromSocket(socket: Socket) {
-	const username = socket.handshake.query?.["username"] as string;
-	const avatar = socket.handshake.query?.["avatar"] as string;
+async function getUsernameAndAvatarFromHandshake(
+	handshake: Socket["handshake"]
+) {
+	const username = handshake.query?.["username"] as string;
+	const avatar = handshake.query?.["avatar"] as string;
 
 	if (!username) {
-		return Promise.reject(`Missing username (${username ?? null})`);
+		return Promise.reject(`Missing username`);
 	}
 
 	if (!avatar) {
-		return Promise.reject(`Missing avatar (${avatar ?? null})`);
+		return Promise.reject(`Missing avatar`);
 	}
 
 	return Promise.resolve([username, avatar]);

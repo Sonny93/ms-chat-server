@@ -1,6 +1,5 @@
 import Logger from "@ioc:Adonis/Core/Logger";
 import { Router } from "mediasoup/node/lib/Router";
-import { Socket } from "socket.io";
 
 import User from "App/lib/User";
 
@@ -10,7 +9,7 @@ import { TRANSPORT_OPTIONS } from "Config/mediasoup";
 type TransportCreateProps = {
 	direction: "recv" | "send";
 };
-export default function (user: User, router: Router, socketId: Socket["id"]) {
+export default function (user: User, router: Router) {
 	return async ({ direction }: TransportCreateProps, callback: Function) => {
 		const transport = await router.createWebRtcTransport({
 			...TRANSPORT_OPTIONS,
@@ -18,12 +17,16 @@ export default function (user: User, router: Router, socketId: Socket["id"]) {
 		});
 
 		transport.on("icestatechange", (connectionState) =>
-			Logger.info("icestatechange", connectionState)
+			Logger.info(
+				`${user.username} ice connection state: ${connectionState}`
+			)
 		);
 		transport.on("dtlsstatechange", (connectionState) => {
-			Logger.info("dtlsstatechange", connectionState);
+			Logger.info(
+				`${user.username} dtls connection state: ${connectionState}`
+			);
 			if (connectionState === "closed") {
-				Logger.info("closed");
+				user.room?.removeTransport(transport.id);
 			}
 		});
 
@@ -35,8 +38,10 @@ export default function (user: User, router: Router, socketId: Socket["id"]) {
 			return callback({ error: "Bad direction" });
 		}
 
+		user.room?.addTransport(transport);
+
 		const transportData = await transportDataClient(transport);
-		Logger.info(socketId, `${direction} transport created`);
+		Logger.info(`${user.username} ${direction} transport created`);
 
 		return callback({ transport: transportData });
 	};

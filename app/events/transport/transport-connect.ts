@@ -1,6 +1,5 @@
 import Logger from "@ioc:Adonis/Core/Logger";
 import { DtlsParameters } from "mediasoup/node/lib/WebRtcTransport";
-import { Socket } from "socket.io";
 
 import User from "App/lib/User";
 
@@ -8,7 +7,7 @@ type TransportConnectProps = {
 	direction: "recv" | "send";
 	dtlsParameters: DtlsParameters;
 };
-export default function (user: User, socketId: Socket["id"]) {
+export default function (user: User) {
 	return async (
 		{ direction, dtlsParameters }: TransportConnectProps,
 		callback: Function
@@ -29,7 +28,7 @@ export default function (user: User, socketId: Socket["id"]) {
 		}
 
 		await transport.connect({ dtlsParameters });
-		Logger.info(socketId, `connected to ${direction} transport`);
+		Logger.info(`${user.username} connected to ${direction} transport`);
 
 		return callback({});
 	};

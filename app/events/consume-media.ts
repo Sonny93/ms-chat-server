@@ -1,7 +1,6 @@
+import Logger from "@ioc:Adonis/Core/Logger";
 import { Router } from "mediasoup/node/lib/Router";
 import { RtpCapabilities } from "mediasoup/node/lib/RtpParameters";
-import { Socket } from "socket.io";
-import Logger from "@ioc:Adonis/Core/Logger";
 
 import User from "App/lib/User";
 
@@ -10,16 +9,18 @@ type ConsumeMediaProps = {
 	producerId: string;
 };
 
-export default function (router: Router, user: User, socketId: Socket["id"]) {
+export default function (router: Router, user: User) {
 	return async (
 		{ clientRtpCapabilities, producerId }: ConsumeMediaProps,
 		callback: any
 	) => {
 		if (!clientRtpCapabilities) {
+			Logger.error(`${user.username} missing RTP Parameters`);
 			return callback({
 				error: "Missing client RTP capabilities",
 			});
 		} else if (!producerId) {
+			Logger.error(`${user.username} missing client producer id`);
 			return callback({ error: "Missing client producer id" });
 		}
 
@@ -29,7 +30,9 @@ export default function (router: Router, user: User, socketId: Socket["id"]) {
 				rtpCapabilities: clientRtpCapabilities,
 			})
 		) {
-			Logger.error(socketId, "cant consume this producerId", producerId);
+			Logger.error(
+				`${user.username} cant consume this producerId: ${producerId}`
+			);
 			return callback({
 				error: "Cant consume this producerId " + producerId,
 			});
@@ -39,6 +42,7 @@ export default function (router: Router, user: User, socketId: Socket["id"]) {
 
 		const transport = user.getRecvTransport();
 		if (!transport) {
+			Logger.error(`${user.username} unable to find transport`);
 			return callback({ error: "Unable to find transport" });
 		}
 
@@ -46,7 +50,7 @@ export default function (router: Router, user: User, socketId: Socket["id"]) {
 			producerId,
 			rtpCapabilities: clientRtpCapabilities,
 		});
-		Logger.info(socketId, "consume success");
+		Logger.info(`${user.username} consume success`);
 
 		return callback({
 			consumerId: consumer.id,
