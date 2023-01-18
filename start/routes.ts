@@ -18,8 +18,21 @@
 |
 */
 
-import Route from '@ioc:Adonis/Core/Route'
+import Route from "@ioc:Adonis/Core/Route";
 
-Route.get('/', async () => {
-  return { hello: 'world' }
-})
+Route.get("/", async () => ({ hello: "world" }));
+Route.get("/routerRtpCapabilities", "RtpCapabilitiesController.index");
+
+Route.get("/rooms", "RoomsController.index");
+Route.post("/rooms", "RoomsController.create");
+
+Route.get("/rooms/:roomId", "RoomsController.get");
+Route.delete("/rooms/:roomId", "RoomsController.delete");
+// patch : only send new params
+Route.patch("/rooms/:roomId", "RoomsController.update");
+
+Route.post("/rooms/:roomId/user", "RoomsController.join");
+Route.delete("/rooms/:roomId/user", "RoomsController.leave");
+
+Route.get("/rooms/:roomId/messages", "RoomsController.messages");
+Route.post("/rooms/:roomId/messages", "RoomsController.createMessage");

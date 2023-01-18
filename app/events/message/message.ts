@@ -1,9 +1,9 @@
 import Logger from "@ioc:Adonis/Core/Logger";
 import { Socket } from "socket.io";
 
+import { SERVER_EVENTS } from "App/events/events";
 import Message from "App/lib/Message";
 import Room from "App/lib/Room";
-import { SERVER_EVENTS } from "App/events/events";
 
 export default function (socket: Socket, ROOMS: Map<string, Room>) {
 	return (content: string, callback: Function) => {
@@ -24,7 +24,7 @@ export default function (socket: Socket, ROOMS: Map<string, Room>) {
 		const message = new Message({ author: user, content: content.trim() });
 		room.addMessage(message);
 
-		Logger.info("[New message]", socket.id, ">", message.content);
+		Logger.info(`[New message] ${user.username} ${message.content}`);
 
 		socket
 			.to(user.room.id)

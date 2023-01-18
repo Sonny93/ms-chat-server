@@ -43,8 +43,17 @@ export default function (user: User, socket: Socket) {
 		const producer = await transport.produce({
 			kind,
 			rtpParameters,
+			appData: {
+				userId: user.id,
+			},
 		});
 		Logger.info(`${user.username} produce success`);
+
+		user.room?.addProducer(producer);
+		producer.on("@close", () => {
+			user.room?.removeProducer(producer.id);
+			console.log("producer close");
+		});
 
 		if (user.room?.id) {
 			Logger.debug(`${user.username} produce to ${user.room.id}`);

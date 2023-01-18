@@ -1,17 +1,22 @@
+import { Transport } from "mediasoup/node/lib/Transport";
+
 import Message from "./Message";
 import User from "./User";
 
 import { randomString } from "App/utils/index";
-import { Transport } from "mediasoup/node/lib/Transport";
+import { Producer } from "mediasoup/node/lib/Producer";
 
 // TODO: Stocker les producer ID et les envoyer au front
 
 export default class Room {
 	id: string;
 	name: string;
+
 	users: User[];
 	messages: Message[];
+
 	transports: Transport[];
+	producers: Producer[];
 
 	constructor() {
 		this.id = (Date.now() + Math.random() * 10000).toString();
@@ -19,7 +24,9 @@ export default class Room {
 
 		this.users = [];
 		this.messages = [];
+
 		this.transports = [];
+		this.producers = [];
 	}
 
 	/* Users */
@@ -66,20 +73,43 @@ export default class Room {
 	getTransports = () => {
 		return this.transports.map(({ id }) => id);
 	};
-	removeTransport = (transportId: Transport["id"]) => {
+	removeTransport = async (transportId: Transport["id"]) => {
 		const transportIndex = this.transports.findIndex(
 			({ id }) => id === transportId
 		);
 		if (transportIndex === -1) {
 			return Promise.reject(
-				"Unable to find transport " +
-					transportId +
-					" in room " +
-					this.id
+				`Unable to find transport ${transportId} in room ${this.id}`
 			);
 		}
 
 		this.transports.splice(transportIndex, 1);
+	};
+
+	/* Producers */
+	addProducer = (producer: Producer) => {
+		this.producers.push(producer);
+	};
+	getProducer = (producerId: Producer["id"]) => {
+		return this.producers.find(({ id }) => id === producerId);
+	};
+	getProducers = () => {
+		return this.producers.map(({ id, appData }) => ({
+			producerId: id,
+			userId: appData.userId,
+		}));
+	};
+	removeProducer = async (producerId: Producer["id"]) => {
+		const producerIndex = this.producers.findIndex(
+			({ id }) => id === producerId
+		);
+		if (producerIndex === -1) {
+			return Promise.reject(
+				`Unable to find producer ${producerId} in room ${this.id}`
+			);
+		}
+
+		this.producers.splice(producerIndex, 1);
 	};
 
 	getRoomData = () => ({
@@ -88,5 +118,6 @@ export default class Room {
 		users: this.getUsers(),
 		messages: this.getMessages(),
 		transports: this.getTransports(),
+		producers: this.getProducers(),
 	});
 }
